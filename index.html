@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D L-System Generator</title>
+    <!-- Tailwind CSS for UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js and components via CDN -->
+    <!-- Three.js and components via Import Map -->
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-panel">
+        <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 mb-4">
+            L-System Engine 3D</h1>
+
+        <div class="control-group">
+            <label class="control-label">Preset</label>
+            <select id="preset-select"
+                class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500">
+                <option value="tree1">Organic Tree 1</option>
+                <option value="tree2">Organic Tree 2</option>
+                <option value="pine">Pine Tree (3D)</option>
+                <option value="fern">Green Fern (3D)</option>
+                <option value="bush">Flowering Bush</option>
+                <option value="hilbert">Hilbert Curve 3D</option>
+                <option value="twisted">Twisted Spire</option>
+                <option value="barnsley">Barnsley Fern</option>
+            </select>
+        </div>
+
+        <div class="section-title">Generation Params</div>
+
+        <div class="control-group">
+            <label class="control-label">Iterations <span id="iter-val" class="text-blue-400">5</span></label>
+            <input type="range" id="iterations" min="1" max="10" step="1" value="5">
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Angle (Degrees) <span id="angle-val" class="text-blue-400">22.5</span></label>
+            <input type="range" id="angle" min="0" max="180" step="0.5" value="22.5">
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Angle Randomness (Degrees) <span id="angle-random-val"
+                    class="text-blue-400">0</span></label>
+            <input type="range" id="angle-random" min="0" max="60" step="1" value="0">
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Step Length <span id="length-val" class="text-blue-400">2</span></label>
+            <input type="range" id="step-length" min="0.1" max="10" step="0.1" value="2">
+            <div class="flex items-center gap-2 mt-1">
+                <input type="checkbox" id="auto-scale" class="w-4 h-4" checked>
+                <label for="auto-scale" class="text-xs text-slate-300 mb-0">Auto-fit Height</label>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Width Taper <span id="taper-val" class="text-blue-400">0.7</span></label>
+            <input type="range" id="width-taper" min="0.5" max="1.0" step="0.01" value="0.7">
+        </div>
+
+        <div class="control-group flex items-center gap-2 mt-2">
+            <input type="checkbox" id="smooth-joints" class="w-4 h-4">
+            <label for="smooth-joints" class="control-label mb-0">Smooth Joints (Spheres)</label>
+        </div>
+        <div class="control-group flex items-center gap-2 mt-2">
+            <input type="checkbox" id="show-ground" class="w-4 h-4" checked>
+            <label for="show-ground" class="control-label mb-0">Show Ground (Shadows)</label>
+        </div>
+
+        <div class="section-title">Rules (Grammar)</div>
+        <div class="control-group">
+            <label class="control-label">Axiom (Start)</label>
+            <input type="text" id="axiom" value="X">
+        </div>
+        <div class="control-group">
+            <label class="control-label">Rules (char=string)</label>
+            <textarea id="rules" rows="4"
+                placeholder="F=FF&#10;X=F+[[X]-X]-F[-FX]+X">X=F-[[X]+X]+F[+FX]-X&#10;F=FF</textarea>
+            <p class="text-xs text-slate-500 mt-1">
+                F: Draw, +/-: Yaw, &/^: Pitch, \//: Roll, L: Leaf
+            </p>
+        </div>
+
+        <div class="section-title">Appearance</div>
+
+        <div class="flex gap-4 mb-2">
+            <div class="flex-1">
+                <label class="control-label">Base Color</label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="color-base" value="#4a3728">
+                    <span class="text-xs text-slate-400">Trunk</span>
+                </div>
+            </div>
+            <div class="flex-1">
+                <label class="control-label">Tip Color</label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="color-tip" value="#22c55e">
+                    <span class="text-xs text-slate-400">Tips</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Leaf Color</label>
+            <div class="flex items-center gap-2">
+                <input type="color" id="color-leaf" value="#ec4899">
+                <span class="text-xs text-slate-400">Flowers/Leaves</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Thickness <span id="width-val" class="text-blue-400">0.1</span></label>
+            <input type="range" id="width" min="0.01" max="5" step="0.01" value="0.1">
+        </div>
+
+        <div class="control-group">
+            <label class="control-label">Render Mode</label>
+            <div class="flex items-center gap-4 bg-slate-800 p-2 rounded border border-slate-700">
+                <label class="flex items-center gap-2 cursor-pointer group">
+                    <input type="radio" name="render-mode" value="3d" checked class="hidden peer">
+                    <span
+                        class="w-4 h-4 rounded-full border-2 border-slate-600 peer-checked:border-blue-500 peer-checked:bg-blue-500 transition-all"></span>
+                    <span class="text-xs text-slate-400 group-hover:text-slate-200">3D (Realistic)</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer group">
+                    <input type="radio" name="render-mode" value="2d" class="hidden peer">
+                    <span
+                        class="w-4 h-4 rounded-full border-2 border-slate-600 peer-checked:border-emerald-500 peer-checked:bg-emerald-500 transition-all"></span>
+                    <span class="text-xs text-slate-400 group-hover:text-slate-200">2D (Flat)</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="control-group mt-6">
+            <button id="btn-generate"
+                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded shadow-lg transition-all transform active:scale-95">
+                Generate Plant
+            </button>
+            <div id="stats" class="text-xs text-center text-slate-500 mt-2">Segments: 0 | Leaves: 0</div>
+        </div>
+    </div>
+
+    <button id="toggle-ui" class="toggle-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+    </button>
+
+    <div id="loader" class="loader">
+        <div class="text-white font-mono animate-pulse">Growing geometry...</div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+
+</html>
