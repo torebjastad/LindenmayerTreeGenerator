@@ -464,6 +464,86 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
     let segmentsRemaining = 0;
     let targetBangIndex = -1;
 
+
+    // --- Continuous 3D Mesh Data ---
+    const vertices = [];
+    const colors = [];
+    const indices = [];
+    let vertexCount = 0;
+
+    // Track the frame for each ring
+    const ringFrames = []; // index -> { forward: Vector3, axis: Vector3 } 
+
+    // Helper: Add a ring of vertices
+    const radialSegments = 8;
+    const addRing = (p, q, radius, refFrame = null) => {
+        const startIdx = vertexCount;
+
+        // Determine the "Forward" direction (Normal of the ring)
+        const forward = new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize();
+
+        let axis;
+
+        if (refFrame) {
+            // Robust Parallel Transport using Quaternion Rotation
+            // Calculate the rotation that aligns oldForward to newForward with minimal twist
+            const quatTransport = new THREE.Quaternion().setFromUnitVectors(refFrame.forward, forward);
+
+            // Apply this rotation to the old axis
+            axis = refFrame.axis.clone().applyQuaternion(quatTransport).normalize();
+
+        } else {
+            // First ring or reset logic
+            axis = new THREE.Vector3(1, 0, 0).applyQuaternion(q).normalize();
+        }
+
+        // Store this frame 
+        const ringIndex = ringFrames.length;
+        ringFrames.push({ forward: forward, axis: axis });
+
+        // Generate Vertices
+        const binormal = new THREE.Vector3().crossVectors(forward, axis).normalize();
+
+        for (let j = 0; j < radialSegments; j++) {
+            const angle = (j / radialSegments) * Math.PI * 2;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+
+            // ringPos = p + radius * (cos * axis + sin * binormal)
+            const vX = axis.x * cos + binormal.x * sin;
+            const vY = axis.y * cos + binormal.y * sin;
+            const vZ = axis.z * cos + binormal.z * sin;
+
+            vertices.push(p.x + vX * radius, p.y + vY * radius, p.z + vZ * radius);
+            vertexCount++;
+        }
+
+        return { startIdx, ringIndex };
+    };
+
+    // Helper: Add faces between two rings
+    const addSegmentFaces = (r1, r2) => {
+        for (let j = 0; j < radialSegments; j++) {
+            const next = (j + 1) % radialSegments;
+            const a = r1 + j;
+            const b = r1 + next;
+            const c = r2 + j;
+            const d = r2 + next;
+
+            indices.push(a, d, c);
+            indices.push(a, b, d);
+        }
+    };
+
+    // State for continuous mesh
+    let lastRingInfo = null;
+
+    // Initial Ring (Root)
+    const initialWidth = currentWidth;
+    if (getRenderMode() === '3d') {
+        lastRingInfo = addRing(pos, quat, currentWidth / 2, null);
+    }
+
     for (let i = 0; i < lString.length; i++) {
         const char = lString[i];
 
@@ -473,41 +553,24 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
             const segmentLen = currentStep;
             const endPos = startPos.clone().add(dir.clone().multiplyScalar(segmentLen));
 
-            // Branch Matrix Calculation
-            const dummy = new THREE.Object3D();
-            dummy.position.copy(startPos.clone().add(endPos).multiplyScalar(0.5));
-            dummy.quaternion.copy(quat);
-            dummy.scale.set(currentWidth, segmentLen, currentWidth);
-            dummy.updateMatrix();
-            branchMatrices.push(dummy.matrix.clone());
-            branchHeights.push(startPos.y);
-
             // Lookahead if needed (Gradual Taper)
             if (segmentsRemaining <= 0) {
                 let tempCount = 0;
                 let tempIndex = i;
                 let foundTaper = false;
                 let bracketDepth = 0;
-
                 while (tempIndex < lString.length) {
                     const c = lString[tempIndex];
-                    if (c === '[') {
-                        bracketDepth++;
-                    } else if (c === ']') {
+                    if (c === '[') bracketDepth++;
+                    if (c === ']') {
                         if (bracketDepth > 0) bracketDepth--;
-                        else break; // End of scope
+                        else break;
                     } else if (bracketDepth === 0) {
-                        if (c === '!') {
-                            foundTaper = true;
-                            break;
-                        }
-                        if (c === 'F' || c === 'G') {
-                            tempCount++;
-                        }
+                        if (c === '!') { foundTaper = true; break; }
+                        if (c === 'F' || c === 'G') tempCount++;
                     }
                     tempIndex++;
                 }
-
                 if (foundTaper && tempCount > 0) {
                     const validTaper = (taper < 1.0) ? taper : 1.0;
                     activeDecay = Math.pow(validTaper, 1 / tempCount);
@@ -519,27 +582,60 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
                     targetBangIndex = -1;
                 }
             }
-
-            // Apply Gradual Taper
-            branchTapers.push(activeDecay);
+            if (getRenderMode() !== '3d') branchTapers.push(activeDecay); // Only need for instanced
             currentWidth *= activeDecay;
             if (segmentsRemaining > 0) segmentsRemaining--;
 
-            // Optional: Add sphere at the joint (startPos) to smooth connections
-            if (smoothJoints) {
-                const sDummy = new THREE.Object3D();
-                sDummy.position.copy(startPos);
-                const prevWidth = currentWidth / activeDecay;
-                sDummy.scale.set(prevWidth, prevWidth, prevWidth);
-                sDummy.updateMatrix();
-                jointMatrices.push(sDummy.matrix.clone());
+            // Legacy 2D / Instanced Logic (Only if not 3D continuous)
+            if (getRenderMode() !== '3d') {
+                // Branch Matrix Calculation
+                const dummy = new THREE.Object3D();
+                dummy.position.copy(startPos.clone().add(endPos).multiplyScalar(0.5));
+                dummy.quaternion.copy(quat);
+                dummy.scale.set(currentWidth, segmentLen, currentWidth);
+                dummy.updateMatrix();
+                branchMatrices.push(dummy.matrix.clone());
+                branchHeights.push(startPos.y);
+            } else {
+                // Continuous 3D Logic - Parallel Transport
+                // If we don't have a valid start ring (e.g. after G move), create one
+                if (!lastRingInfo) {
+                    lastRingInfo = addRing(startPos, quat, currentWidth / 2, null);
+                }
+
+                // Check for Direction Change (Turn)
+                // If the new direction differs from the last ring's direction, insert a Pivot Ring
+                const prevFrame = ringFrames[lastRingInfo.ringIndex];
+                const currentForward = new THREE.Vector3(0, 1, 0).applyQuaternion(quat).normalize();
+
+                // Dot product check for alignment (1.0 = aligned)
+                if (prevFrame.forward.dot(currentForward) < 0.999) {
+                    // Generate a duplicate Pivot Ring at startPos, but aligned to new direction
+                    // This creates a "Knuckle" (Zero-length segment) to bridge the rotation
+
+                    // Refined Pivot Ring Width:
+                    // `currentWidth` has already been decayed for the *end* of this segment.
+                    // The pivot ring is at the *start* of this segment, so it should use the width *before* decay.
+                    const startWidth = (activeDecay > 0) ? currentWidth / activeDecay : currentWidth;
+
+                    const pivotRingInfo = addRing(startPos, quat, startWidth / 2, prevFrame);
+                    addSegmentFaces(lastRingInfo.startIdx, pivotRingInfo.startIdx);
+                    lastRingInfo = pivotRingInfo;
+                }
+
+                // Now generate the Main Segment
+                const endRingInfo = addRing(endPos, quat, currentWidth / 2, ringFrames[lastRingInfo.ringIndex]);
+
+                addSegmentFaces(lastRingInfo.startIdx, endRingInfo.startIdx);
+                lastRingInfo = endRingInfo;
             }
 
             // Update turtle
             pos.copy(endPos);
             updateBounds(pos);
 
-            if (branchMatrices.length > MAX_SEGMENTS) break;
+            if (getRenderMode() !== '3d' && branchMatrices.length > MAX_SEGMENTS) break;
+            if (getRenderMode() === '3d' && vertexCount > 1000000) break; // Safety break
 
         } else if (char === 'L' || char === 'P') {
             const dummy = new THREE.Object3D();
@@ -589,8 +685,10 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
                 width: currentWidth,
                 decay: activeDecay,
                 segs: segmentsRemaining,
-                target: targetBangIndex
+                target: targetBangIndex,
+                lastBend: lastRingInfo // Save current ring
             });
+            // Don't reset taper state here? The original code did.
             activeDecay = 1.0;
             segmentsRemaining = 0;
             targetBangIndex = -1;
@@ -604,60 +702,72 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
                 activeDecay = state.decay;
                 segmentsRemaining = state.segs;
                 targetBangIndex = state.target;
+                // IMPORTANT: When returning to a branch point, we shouldn't necessarily
+                // force the next segment to align with the PREVIOUS sibling branch.
+                // It should align with the PARENT ring.
+                // Fortunately, state.lastBend points to the PARENT ring index from before the push.
+                lastRingInfo = state.lastBend; // Restore ring for branching
             }
         }
     }
 
-    if (branchMatrices.length > 0) {
-        // ... (existing code geometry/material setup)
+    let geometry, material;
+
+    if (getRenderMode() === '3d' && vertices.length > 0) {
+        // Build Continuous Mesh
+        geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.setIndex(new THREE.Uint32BufferAttribute(indices, 1)); // Use Uint32 for potentially large indices
+        geometry.computeVertexNormals();
+
+        // Coloring based on Height (maxY)
+        const vColors = [];
+        const cBase = new THREE.Color(uiParams.colorBase.value);
+        const cTip = new THREE.Color(uiParams.colorTip.value);
+        // Need to calculate maxY first
+        // updateBounds did it? Yes.
+        const yRange = (maxY - minY) || 1;
+
+        for (let i = 0; i < vertices.length; i += 3) {
+            const y = vertices[i + 1];
+            const t = Math.max(0, Math.min(1, (y - minY) / yRange));
+            const c = cBase.clone().lerp(cTip, t);
+            vColors.push(c.r, c.g, c.b);
+        }
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(vColors, 3));
+
+        // Material with vertex colors
+        material = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.8,
+            metalness: 0.1
+        });
+
+        treeMesh = new THREE.Mesh(geometry, material);
+        treeMesh.castShadow = true;
+        treeMesh.receiveShadow = true;
+        scene.add(treeMesh);
+
+        scene.fog.density = 0.002;
+
+    } else if (branchMatrices.length > 0) {
+        // Fallback for 2D or legacy (Instanced)
         const renderMode = getRenderMode();
-        let geometry, material;
 
         if (renderMode === '3d') {
-            geometry = new THREE.CylinderGeometry(1, 1, 1, 5); // Base Cylinder
-            geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0.5, 0)); // Pivot at bottom
-            // Check previous pivot logic! Pivot was center (0.5).
-            // Line 411: dummy.position... multiplyScalar(0.5).
-            // If I change pivot to bottom, I must adjust position logic OR shader logic.
-            // Let's keep geometry centered (-0.5 to 0.5) to avoid breaking position logic.
             geometry = new THREE.CylinderGeometry(1, 1, 1, 5); // Centered
-
             material = new THREE.MeshPhongMaterial({ shininess: 10 });
-
-            // Custom Shader to apply per-instance taper to TOP vertices
-            material.onBeforeCompile = (shader) => {
-                shader.vertexShader = `
-                    attribute float instanceTaper;
-                ` + shader.vertexShader;
-
-                shader.vertexShader = shader.vertexShader.replace(
-                    '#include <begin_vertex>',
-                    `
-                    #include <begin_vertex>
-                    // Cylinder is Y-up, centered at 0. Top is y=0.5
-                    if (position.y > 0.0) {
-                        transformed.xz *= instanceTaper;
-                    }
-                    `
-                );
-            };
-
             scene.fog.density = 0.002;
         } else {
-            // ...
             geometry = new THREE.BoxGeometry(1, 1, 0.01);
             material = new THREE.MeshBasicMaterial(); // No lighting
             scene.fog.density = 0.0001; // Less fog in 2D
         }
 
-        if (renderMode === '3d') {
-            geometry.setAttribute('instanceTaper', new THREE.InstancedBufferAttribute(new Float32Array(branchTapers), 1));
-        }
-
         treeMesh = new THREE.InstancedMesh(geometry, material, branchMatrices.length);
         treeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        treeMesh.userData.branchHeights = branchHeights;
-        treeMesh.userData.maxY = maxY;
+        treeMesh.userData.branchHeights = branchHeights; // Keep for instanced coloring
+        treeMesh.userData.maxY = maxY; // Keep for instanced coloring
         treeMesh.castShadow = true;
         treeMesh.receiveShadow = true;
 
@@ -676,8 +786,8 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
         scene.add(treeMesh);
     }
 
-    // 4. Create Joints (Spheres)
-    if (jointMatrices.length > 0) {
+    // 4. Create Joints (Spheres) - Only for instanced/2D mode
+    if (getRenderMode() !== '3d' && jointMatrices.length > 0) {
         const renderMode = getRenderMode();
         const geometry = new THREE.SphereGeometry(1.0, 8, 8); // Radius 1.0 matches Cylinder Radius 1.0
         const material = renderMode === '3d'
