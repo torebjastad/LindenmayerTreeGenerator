@@ -19,7 +19,6 @@ const uiParams = {
     angleRandom: document.getElementById('angle-random'),
     length: document.getElementById('step-length'),
     taper: document.getElementById('width-taper'),
-    smoothJoints: document.getElementById('smooth-joints'),
     showGround: document.getElementById('show-ground'),
     autoScale: document.getElementById('auto-scale'),
     axiom: document.getElementById('axiom'),
@@ -93,12 +92,12 @@ const presets = {
         rules: "X=F///+[[!X]///-!X]///-F[///-F!X]///+!X\nF=FF",
         angle: 22.5,
         iter: 7,
-        len: 1.5,
-        width: 4.123,
-        cBase: "#7f5539",
-        cTip: "#22c55e",
-        cLeaf: "#86efac",
-        taper: 0.76,
+        len: 0.1,
+        width: 0.370,
+        cBase: "#2e5c18", // Deep Green
+        cTip: "#22c55e",  // Bright Green
+        cLeaf: "#86efac", // Pale Green
+        taper: 0.81,
         angleRandom: 6
     },
     bush: {
@@ -112,6 +111,19 @@ const presets = {
         cTip: "#0cad00",
         cLeaf: "#f43f5e",
         taper: 0.61
+    },
+    spire: {
+        axiom: "F",
+        rules: "F=F[&+F][&-F][^+F][^-F]//F",
+        angle: 28.5,
+        iter: 6,
+        len: 2,
+        width: 0.17,
+        cBase: "#4a4036", // Dark Grey/Brown
+        cTip: "#a8a8a0", // Beige/Grey
+        cLeaf: "#ffcc00", // Yellow/Orange
+        taper: 1.0,
+        angleRandom: 2
     },
     hilbert: {
         axiom: "A",
@@ -371,7 +383,6 @@ function generateLSystem(resetCamera = false) {
             const minW = 0.01, maxW = 50;
             const width = minW * Math.pow(maxW / minW, widthVal);
             const taper = uiParams.taper ? parseFloat(uiParams.taper.value) : 1.0;
-            const smoothJoints = uiParams.smoothJoints ? uiParams.smoothJoints.checked : false;
             const autoScale = uiParams.autoScale ? uiParams.autoScale.checked : true;
 
             // 1. Generate String
@@ -390,7 +401,7 @@ function generateLSystem(resetCamera = false) {
             }
 
             // 2. Build Geometry
-            buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smoothJoints, autoScale, resetCamera);
+            buildGeometry(lString, angle, angleVariance, stepLen, width, taper, autoScale, resetCamera);
 
         } catch (e) {
             console.error(e);
@@ -402,7 +413,7 @@ function generateLSystem(resetCamera = false) {
     }, 50);
 }
 
-function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smoothJoints, autoScale, resetCamera) {
+function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, autoScale, resetCamera) {
     // Clean up old meshes
     if (treeMesh) {
         scene.remove(treeMesh);
@@ -412,10 +423,6 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
     if (leafMesh) {
         scene.remove(leafMesh);
         leafMesh.dispose();
-    }
-    if (jointMesh) {
-        scene.remove(jointMesh);
-        jointMesh.dispose();
     }
 
     // Turtle State
@@ -435,7 +442,6 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
     const branchMatrices = [];
     const branchHeights = [];
     const branchTapers = []; // Store taper ratio for lookahead
-    const jointMatrices = []; // For smoothing spheres
 
     // Leaf transforms
     const leafMatrices = [];
@@ -635,7 +641,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
             updateBounds(pos);
 
             if (getRenderMode() !== '3d' && branchMatrices.length > MAX_SEGMENTS) break;
-            if (getRenderMode() === '3d' && vertexCount > 1000000) break; // Safety break
+            if (getRenderMode() === '3d' && vertexCount > 10000000) break; // Safety break increased
 
         } else if (char === 'L' || char === 'P') {
             const dummy = new THREE.Object3D();
@@ -786,35 +792,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
         scene.add(treeMesh);
     }
 
-    // 4. Create Joints (Spheres) - Only for instanced/2D mode
-    if (getRenderMode() !== '3d' && jointMatrices.length > 0) {
-        const renderMode = getRenderMode();
-        const geometry = new THREE.SphereGeometry(1.0, 8, 8); // Radius 1.0 matches Cylinder Radius 1.0
-        const material = renderMode === '3d'
-            ? new THREE.MeshPhongMaterial({ shininess: 10 })
-            : new THREE.MeshBasicMaterial();
 
-        jointMesh = new THREE.InstancedMesh(geometry, material, jointMatrices.length);
-
-        const colorBase = new THREE.Color(uiParams.colorBase.value);
-        const colorTip = new THREE.Color(uiParams.colorTip.value);
-
-        // Reuse branch heights strategy approx (map joint index to branch index approx or startPos.y)
-        // Since joints correspond 1:1 to branches at startPos, we can reuse branchHeights
-        for (let i = 0; i < jointMatrices.length; i++) {
-            jointMesh.setMatrixAt(i, jointMatrices[i]);
-            // Height color
-            const h = branchHeights[i]; // joint i comes from branch i
-            const t = Math.min(1, Math.max(0, h / maxY));
-            jointMesh.setColorAt(i, colorBase.clone().lerp(colorTip, t));
-        }
-        jointMesh.instanceMatrix.needsUpdate = true;
-        if (jointMesh.instanceColor) jointMesh.instanceColor.needsUpdate = true;
-        jointMesh.castShadow = true;
-        jointMesh.receiveShadow = true;
-
-        scene.add(jointMesh);
-    }
 
     // 5. Create Leaves
     if (leafMatrices.length > 0) {
@@ -850,7 +828,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
 
         if (treeMesh) treeMesh.scale.set(scale, scale, scale);
         if (leafMesh) leafMesh.scale.set(scale, scale, scale);
-        if (jointMesh) jointMesh.scale.set(scale, scale, scale);
+
 
         // Adjust bounds logic for camera
         sizeX *= scale; sizeY *= scale; sizeZ *= scale;
@@ -973,7 +951,7 @@ function loadPreset() {
     const sliderPos = Math.log(p.width / minW) / Math.log(maxW / minW);
     uiParams.width.value = sliderPos;
     if (uiParams.taper) uiParams.taper.value = p.taper !== undefined ? p.taper : 0.7; // Reset taper
-    if (uiParams.smoothJoints) uiParams.smoothJoints.checked = false; // Reset smoothing
+
     if (uiParams.showGround) uiParams.showGround.checked = true; // Default ground on
     if (uiParams.autoScale) uiParams.autoScale.checked = true; // Default auto-scale on
     if (groundMesh) groundMesh.visible = true;
@@ -994,7 +972,11 @@ function loadPreset() {
         const el = document.getElementById(id);
         const display = document.getElementById(valDisplays[id]);
         if (el && display) {
-            display.textContent = el.value;
+            if (id === 'width') {
+                display.textContent = p.width;
+            } else {
+                display.textContent = el.value;
+            }
         }
     });
 
