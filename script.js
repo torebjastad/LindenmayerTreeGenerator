@@ -40,58 +40,78 @@ const loaderEl = document.getElementById('loader');
 const presets = {
     tree1: {
         axiom: "X",
-        rules: "X=F-[![X]+X]+F[+F!X]-X\nF=FF", // Added !
+        rules: "X=F-[![X]+X]+F[+F!X]-X\nF=FF",
         angle: 22.5,
-        iter: 5,
+        iter: 6,
         len: 1.5,
-        width: 0.15,
-        cBase: "#4a3728",
+        width: 0.961,
+        cBase: "#5d4037",
         cTip: "#22c55e",
-        cLeaf: "#ff00dd"
+        cLeaf: "#f0abfc",
+        taper: 0.69,
+        angleRandom: 2
     },
     tree2: {
         axiom: "F",
-        rules: "F=FF+[!+F-F-F]-[-!F+F+F]", // Added !
+        rules: "F=FF!+[+F-F-F]-[-F+F+F]",
         angle: 25,
         iter: 4,
         len: 2,
-        width: 0.1,
+        width: 0.732,
         cBase: "#2d1b0e",
         cTip: "#84cc16",
-        cLeaf: "#facc15"
+        cLeaf: "#facc15",
+        taper: 0.95
     },
     pine: {
         axiom: "FX",
-        rules: "X=[!+FX][ !-FX][ !&FX][ !^FX]\nF=FF", // Added !
-        angle: 20,
-        iter: 6,
-        len: 1,
-        width: 0.15,
+        rules: "X=![+FX][-FX][&FX][^FX]\nF=FF",
+        angle: 22,
+        iter: 8,
+        len: 0.5,
+        width: 6.699,
         cBase: "#3f2e18",
-        cTip: "#064e3b",
-        cLeaf: "#34d399"
+        cTip: "#05850d",
+        cLeaf: "#05850d",
+        taper: 0.58,
+        angleRandom: 14
     },
     fern: {
         axiom: "X",
-        rules: "X=F[+!X][ -!X]F!X\nF=FF", // Added !
+        rules: "X=F[+!X][ -!X]F!X\nF=FF",
         angle: 25,
         iter: 6,
         len: 1,
-        width: 0.05,
-        cBase: "#14532d",
-        cTip: "#4ade80",
-        cLeaf: "#bef264"
+        width: 0.905,
+        cBase: "#1a642e",
+        cTip: "#22c55e",
+        cLeaf: "#ccfbf1",
+        taper: 0.7
+    },
+    fern3d: {
+        axiom: "X",
+        rules: "X=F///+[[!X]///-!X]///-F[///-F!X]///+!X\nF=FF",
+        angle: 22.5,
+        iter: 7,
+        len: 1.5,
+        width: 4.123,
+        cBase: "#7f5539",
+        cTip: "#22c55e",
+        cLeaf: "#86efac",
+        taper: 0.76,
+        angleRandom: 6
     },
     bush: {
         axiom: "A",
         rules: "A=[&FL!A]/////'[&FL!A]///////'[&FL!A]\nF=S/////F\nS=FL\nL=['''^^{-f+f+f-|-f+f+f}]",
         angle: 22.5,
-        iter: 5,
+        iter: 6,
         len: 2,
-        width: 0.3,
+        width: 0.607,
         cBase: "#3f2e18",
-        cTip: "#10b981",
-        cLeaf: "#f43f5e"
+        cTip: "#0cad00",
+        cLeaf: "#f43f5e",
+        taper: 0.61
     },
     hilbert: {
         axiom: "A",
@@ -102,7 +122,8 @@ const presets = {
         width: 0.2,
         cBase: "#0ea5e9",
         cTip: "#d946ef",
-        cLeaf: "#ffffff"
+        cLeaf: "#ffffff",
+        taper: 1.0
     },
     twisted: {
         axiom: "F",
@@ -113,18 +134,20 @@ const presets = {
         width: 0.15,
         cBase: "#44403c",
         cTip: "#a8a29e",
-        cLeaf: "#fbbf24"
+        cLeaf: "#fbbf24",
+        taper: 1.0
     },
     barnsley: {
         axiom: "X",
-        rules: "X=F+[[X]-X]-F[-FX]+X\nF=FF",
+        rules: "X=F+[[!X]-!X]-F[-F!X]+!X\nF=FF",
         angle: 25,
-        iter: 6,
+        iter: 7,
         len: 1.5,
-        width: 0.1,
+        width: 3.754,
         cBase: "#14532d",
         cTip: "#22c55e",
-        cLeaf: "#86efac"
+        cLeaf: "#86efac",
+        taper: 0.73
     }
 };
 
@@ -271,15 +294,50 @@ function init() {
         'width-taper': 'taper-val'
     };
 
+    // Helper for Logarithmic Width
+    const minW = 0.01, maxW = 50;
+    const getLogWidth = (val) => {
+        // val is 0..1
+        return minW * Math.pow(maxW / minW, val);
+    };
+    const getSliderPos = (width) => {
+        // width is 0.01..50
+        return Math.log(width / minW) / Math.log(maxW / minW);
+    };
+
     Object.keys(valDisplays).forEach(id => {
         const input = document.getElementById(id);
         const display = document.getElementById(valDisplays[id]);
         if (input && display) {
-            input.addEventListener('input', () => display.textContent = input.value);
+            input.addEventListener('input', () => {
+                let val = input.value;
+                if (id === 'width') {
+                    // Logarithmic display
+                    const w = getLogWidth(parseFloat(val));
+                    display.textContent = w.toFixed(3);
+                } else {
+                    display.textContent = val;
+                }
+            });
+        }
+    });
+
+    // Initial Display Update
+    Object.keys(valDisplays).forEach(id => {
+        const input = document.getElementById(id);
+        const display = document.getElementById(valDisplays[id]);
+        if (input && display && id === 'width') {
+            const w = getLogWidth(parseFloat(input.value));
+            display.textContent = w.toFixed(3);
         }
     });
 
     // Initial Generation
+    // Load default preset values first
+    const presetSelect = document.getElementById('preset-select');
+    if (presetSelect) {
+        loadPreset.call(presetSelect);
+    }
     generateLSystem(true);
     animate();
 }
@@ -308,7 +366,10 @@ function generateLSystem(resetCamera = false) {
             const angle = parseFloat(uiParams.angle.value) * (Math.PI / 180);
             const angleVariance = parseFloat(uiParams.angleRandom.value) * (Math.PI / 180);
             const stepLen = parseFloat(uiParams.length.value);
-            const width = parseFloat(uiParams.width.value);
+            // Logarithmic Width
+            const widthVal = parseFloat(uiParams.width.value);
+            const minW = 0.01, maxW = 50;
+            const width = minW * Math.pow(maxW / minW, widthVal);
             const taper = uiParams.taper ? parseFloat(uiParams.taper.value) : 1.0;
             const smoothJoints = uiParams.smoothJoints ? uiParams.smoothJoints.checked : false;
             const autoScale = uiParams.autoScale ? uiParams.autoScale.checked : true;
@@ -373,6 +434,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
     // Buffers for InstancedMesh
     const branchMatrices = [];
     const branchHeights = [];
+    const branchTapers = []; // Store taper ratio for lookahead
     const jointMatrices = []; // For smoothing spheres
 
     // Leaf transforms
@@ -397,6 +459,11 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
     // Helper for random angle
     const getAngle = () => angle + (Math.random() - 0.5) * 2 * angleVariance;
 
+    // Gradual Taper State
+    let activeDecay = 1.0;
+    let segmentsRemaining = 0;
+    let targetBangIndex = -1;
+
     for (let i = 0; i < lString.length; i++) {
         const char = lString[i];
 
@@ -415,11 +482,55 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
             branchMatrices.push(dummy.matrix.clone());
             branchHeights.push(startPos.y);
 
+            // Lookahead if needed (Gradual Taper)
+            if (segmentsRemaining <= 0) {
+                let tempCount = 0;
+                let tempIndex = i;
+                let foundTaper = false;
+                let bracketDepth = 0;
+
+                while (tempIndex < lString.length) {
+                    const c = lString[tempIndex];
+                    if (c === '[') {
+                        bracketDepth++;
+                    } else if (c === ']') {
+                        if (bracketDepth > 0) bracketDepth--;
+                        else break; // End of scope
+                    } else if (bracketDepth === 0) {
+                        if (c === '!') {
+                            foundTaper = true;
+                            break;
+                        }
+                        if (c === 'F' || c === 'G') {
+                            tempCount++;
+                        }
+                    }
+                    tempIndex++;
+                }
+
+                if (foundTaper && tempCount > 0) {
+                    const validTaper = (taper < 1.0) ? taper : 1.0;
+                    activeDecay = Math.pow(validTaper, 1 / tempCount);
+                    segmentsRemaining = tempCount;
+                    targetBangIndex = tempIndex;
+                } else {
+                    activeDecay = 1.0;
+                    segmentsRemaining = 0;
+                    targetBangIndex = -1;
+                }
+            }
+
+            // Apply Gradual Taper
+            branchTapers.push(activeDecay);
+            currentWidth *= activeDecay;
+            if (segmentsRemaining > 0) segmentsRemaining--;
+
             // Optional: Add sphere at the joint (startPos) to smooth connections
             if (smoothJoints) {
                 const sDummy = new THREE.Object3D();
                 sDummy.position.copy(startPos);
-                sDummy.scale.set(currentWidth, currentWidth, currentWidth);
+                const prevWidth = currentWidth / activeDecay;
+                sDummy.scale.set(prevWidth, prevWidth, prevWidth);
                 sDummy.updateMatrix();
                 jointMatrices.push(sDummy.matrix.clone());
             }
@@ -463,9 +574,26 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
             rotHelper.setFromAxisAngle(zAxis, Math.PI);
             quat.multiply(rotHelper);
         } else if (char === '!') {
-            currentWidth *= taper; // Attenuate width
+            if (i === targetBangIndex) {
+                activeDecay = 1.0;
+                segmentsRemaining = 0;
+                targetBangIndex = -1;
+            } else {
+                currentWidth *= taper;
+            }
         } else if (char === '[') {
-            stateStack.push({ pos: pos.clone(), quat: quat.clone(), step: currentStep, width: currentWidth });
+            stateStack.push({
+                pos: pos.clone(),
+                quat: quat.clone(),
+                step: currentStep,
+                width: currentWidth,
+                decay: activeDecay,
+                segs: segmentsRemaining,
+                target: targetBangIndex
+            });
+            activeDecay = 1.0;
+            segmentsRemaining = 0;
+            targetBangIndex = -1;
         } else if (char === ']') {
             if (stateStack.length > 0) {
                 const state = stateStack.pop();
@@ -473,6 +601,9 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
                 quat.copy(state.quat);
                 currentStep = state.step;
                 currentWidth = state.width;
+                activeDecay = state.decay;
+                segmentsRemaining = state.segs;
+                targetBangIndex = state.target;
             }
         }
     }
@@ -483,14 +614,44 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, smo
         let geometry, material;
 
         if (renderMode === '3d') {
-            geometry = new THREE.CylinderGeometry(1, 1, 1, 5); // Simple 5-sided cylinder
+            geometry = new THREE.CylinderGeometry(1, 1, 1, 5); // Base Cylinder
+            geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0.5, 0)); // Pivot at bottom
+            // Check previous pivot logic! Pivot was center (0.5).
+            // Line 411: dummy.position... multiplyScalar(0.5).
+            // If I change pivot to bottom, I must adjust position logic OR shader logic.
+            // Let's keep geometry centered (-0.5 to 0.5) to avoid breaking position logic.
+            geometry = new THREE.CylinderGeometry(1, 1, 1, 5); // Centered
+
             material = new THREE.MeshPhongMaterial({ shininess: 10 });
+
+            // Custom Shader to apply per-instance taper to TOP vertices
+            material.onBeforeCompile = (shader) => {
+                shader.vertexShader = `
+                    attribute float instanceTaper;
+                ` + shader.vertexShader;
+
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    `
+                    #include <begin_vertex>
+                    // Cylinder is Y-up, centered at 0. Top is y=0.5
+                    if (position.y > 0.0) {
+                        transformed.xz *= instanceTaper;
+                    }
+                    `
+                );
+            };
+
             scene.fog.density = 0.002;
         } else {
             // ...
             geometry = new THREE.BoxGeometry(1, 1, 0.01);
             material = new THREE.MeshBasicMaterial(); // No lighting
             scene.fog.density = 0.0001; // Less fog in 2D
+        }
+
+        if (renderMode === '3d') {
+            geometry.setAttribute('instanceTaper', new THREE.InstancedBufferAttribute(new Float32Array(branchTapers), 1));
         }
 
         treeMesh = new THREE.InstancedMesh(geometry, material, branchMatrices.length);
@@ -694,10 +855,14 @@ function loadPreset() {
     uiParams.rules.value = p.rules;
     uiParams.iterations.value = p.iter;
     uiParams.angle.value = p.angle;
-    uiParams.angleRandom.value = 0; // Reset randomness for presets
+    uiParams.angleRandom.value = p.angleRandom !== undefined ? p.angleRandom : 0; // Set randomness
     uiParams.length.value = p.len;
-    uiParams.width.value = p.width;
-    if (uiParams.taper) uiParams.taper.value = 0.7; // Reset taper
+    uiParams.length.value = p.len;
+    // Set slider position from real width
+    const minW = 0.01, maxW = 50;
+    const sliderPos = Math.log(p.width / minW) / Math.log(maxW / minW);
+    uiParams.width.value = sliderPos;
+    if (uiParams.taper) uiParams.taper.value = p.taper !== undefined ? p.taper : 0.7; // Reset taper
     if (uiParams.smoothJoints) uiParams.smoothJoints.checked = false; // Reset smoothing
     if (uiParams.showGround) uiParams.showGround.checked = true; // Default ground on
     if (uiParams.autoScale) uiParams.autoScale.checked = true; // Default auto-scale on
