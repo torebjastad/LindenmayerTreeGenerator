@@ -30,7 +30,7 @@
         <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 mb-4">
             L-System Engine 3D</h1>
 
-        <div class="control-group">
+        <div class="control-group mb-2">
             <label class="control-label">Preset</label>
             <select id="preset-select"
                 class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500">
@@ -41,10 +41,36 @@
                 <option value="hilbert">Hilbert Curve (3D)</option>
                 <option value="tree1">Organic Tree 1</option>
                 <option value="tree2">Organic Tree 2</option>
+                <option value="leafy">Leafy Tree (3D)</option>
+                <option value="leafy2">Leafy Tree 2 (3D)</option>
+                <option value="flower">Alien Flower (3D)</option>
                 <option value="barnsley">Barnsley Fern (2D)</option>
                 <option value="fern">Green Fern (2D)</option>
             </select>
         </div>
+
+        <details class="bg-slate-800/50 rounded border border-slate-700 mb-2">
+            <summary
+                class="cursor-pointer p-2 text-sm font-semibold text-slate-300 hover:text-white select-none flex items-center gap-2">
+                <span>Advanced Rules (Grammar)</span>
+            </summary>
+            <div class="p-2 border-t border-slate-700 bg-slate-900/50">
+                <div class="control-group mb-2">
+                    <label class="control-label text-xs">Axiom (Start)</label>
+                    <input type="text" id="axiom" value="X"
+                        class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono">
+                </div>
+                <div class="control-group mb-1">
+                    <label class="control-label text-xs">Rules (char=string)</label>
+                    <textarea id="rules" rows="4"
+                        class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono"
+                        placeholder="F=FF&#10;X=F+[[X]-X]-F[-FX]+X">X=F-[[X]+X]+F[+FX]-X&#10;F=FF</textarea>
+                    <p class="text-xs text-slate-500 mt-1">
+                        F: Draw, +/-: Yaw, &/^: Pitch, \//: Roll, L: Leaf
+                    </p>
+                </div>
+            </div>
+        </details>
 
         <div class="section-title">Generation Params</div>
 
@@ -67,34 +93,36 @@
         <div class="control-group">
             <label class="control-label">Step Length <span id="length-val" class="text-blue-400">2</span></label>
             <input type="range" id="step-length" min="0.1" max="10" step="0.1" value="2">
-            <div class="flex items-center gap-2 mt-1">
-                <input type="checkbox" id="auto-scale" class="w-4 h-4" checked>
-                <label for="auto-scale" class="text-xs text-slate-300 mb-0">Auto-fit Height</label>
-            </div>
         </div>
 
-        <div class="control-group">
-            <label class="control-label">Width Taper <span id="taper-val" class="text-blue-400">0.7</span></label>
-            <input type="range" id="width-taper" min="0.5" max="1.0" step="0.01" value="0.7">
+        <div class="mb-2">
+            <div class="flex justify-between items-center mb-1">
+                <label class="control-label">Width Taper (0.1 - 1.0)</label>
+                <span id="taper-val" class="text-blue-400 text-xs font-mono">0.7</span>
+            </div>
+            <input type="range" id="width-taper" min="0.1" max="1.0" step="0.01" value="0.7" class="slider">
+        </div>
+
+        <div class="mb-2">
+            <div class="flex justify-between items-center mb-1">
+                <label class="control-label">Leaf Size (Multiplier)</label>
+                <span id="leaf-size-val" class="text-blue-400 text-xs font-mono">1.0</span>
+            </div>
+            <input type="range" id="leaf-size" min="0.1" max="5.0" step="0.1" value="1.0" class="slider">
+        </div>
+
+        <div class="control-group flex items-center gap-2 mt-4">
+            <input type="checkbox" id="auto-scale" class="w-4 h-4" checked>
+            <label for="auto-scale" class="control-label mb-0">Auto-fit Height</label>
+        </div>
+        <div class="control-group flex items-center gap-2 mt-2">
+            <input type="checkbox" id="leaves-tips-only" class="w-4 h-4">
+            <label for="leaves-tips-only" class="control-label mb-0">Leaves at Tips Only</label>
         </div>
 
         <div class="control-group flex items-center gap-2 mt-2">
             <input type="checkbox" id="show-ground" class="w-4 h-4" checked>
             <label for="show-ground" class="control-label mb-0">Show Ground (Shadows)</label>
-        </div>
-
-        <div class="section-title">Rules (Grammar)</div>
-        <div class="control-group">
-            <label class="control-label">Axiom (Start)</label>
-            <input type="text" id="axiom" value="X">
-        </div>
-        <div class="control-group">
-            <label class="control-label">Rules (char=string)</label>
-            <textarea id="rules" rows="4"
-                placeholder="F=FF&#10;X=F+[[X]-X]-F[-FX]+X">X=F-[[X]+X]+F[+FX]-X&#10;F=FF</textarea>
-            <p class="text-xs text-slate-500 mt-1">
-                F: Draw, +/-: Yaw, &/^: Pitch, \//: Roll, L: Leaf
-            </p>
         </div>
 
         <div class="section-title">Appearance</div>

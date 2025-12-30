@@ -19,6 +19,8 @@ const uiParams = {
     angleRandom: document.getElementById('angle-random'),
     length: document.getElementById('step-length'),
     taper: document.getElementById('width-taper'),
+    leafSize: document.getElementById('leaf-size'),
+    leavesTipsOnly: document.getElementById('leaves-tips-only'),
     showGround: document.getElementById('show-ground'),
     autoScale: document.getElementById('auto-scale'),
     axiom: document.getElementById('axiom'),
@@ -59,8 +61,39 @@ const presets = {
         width: 0.732,
         cBase: "#2d1b0e",
         cTip: "#84cc16",
-        cLeaf: "#facc15",
-        taper: 0.95
+        cLeaf: "#86efac",
+        taper: 0.73,
+        leavesTipsOnly: true
+    },
+    leafy2: {
+        axiom: "X",
+        rules: "X=F///+[[!XL]///-!XL]///-F[///-F!XL]///+!XL\nF=FF",
+        angle: 22.5,
+        iter: 7,
+        len: 0.1,
+        width: 0.37,
+        cBase: "#36200C",
+        cTip: "#6E4121",
+        cLeaf: "#34AA09",
+        taper: 0.81,
+        angleRandom: 6,
+        leafSize: 5.0,
+        leavesTipsOnly: true
+    },
+    leafy: {
+        axiom: "FX",
+        rules: "X=![FXL][+FXL][-FXL][&FXL][^FXL]\nF=FF",
+        angle: 34,
+        iter: 7,
+        len: 0.5,
+        width: 9.418,
+        cBase: "#3f2e18",
+        cTip: "#6b5c20",
+        cLeaf: "#0F990F",
+        taper: 0.39,
+        angleRandom: 22,
+        leafSize: 4.6,
+        leavesTipsOnly: true
     },
     pine: {
         axiom: "FX",
@@ -73,7 +106,8 @@ const presets = {
         cTip: "#05850d",
         cLeaf: "#05850d",
         taper: 0.58,
-        angleRandom: 14
+        angleRandom: 14,
+        leavesTipsOnly: true
     },
     fern: {
         axiom: "X",
@@ -85,7 +119,8 @@ const presets = {
         cBase: "#1a642e",
         cTip: "#22c55e",
         cLeaf: "#ccfbf1",
-        taper: 0.7
+        taper: 0.7,
+        leavesTipsOnly: true
     },
     fern3d: {
         axiom: "X",
@@ -98,7 +133,8 @@ const presets = {
         cTip: "#22c55e",  // Bright Green
         cLeaf: "#86efac", // Pale Green
         taper: 0.81,
-        angleRandom: 6
+        angleRandom: 6,
+        leavesTipsOnly: true
     },
     bush: {
         axiom: "A",
@@ -110,7 +146,8 @@ const presets = {
         cBase: "#3f2e18",
         cTip: "#0cad00",
         cLeaf: "#f43f5e",
-        taper: 0.61
+        taper: 0.61,
+        leavesTipsOnly: true
     },
     spire: {
         axiom: "F",
@@ -135,7 +172,8 @@ const presets = {
         cBase: "#0ea5e9",
         cTip: "#d946ef",
         cLeaf: "#ffffff",
-        taper: 1.0
+        taper: 1.0,
+        leavesTipsOnly: true
     },
     twisted: {
         axiom: "F",
@@ -160,6 +198,21 @@ const presets = {
         cTip: "#22c55e",
         cLeaf: "#86efac",
         taper: 0.73
+    },
+    flower: {
+        axiom: "FFA",
+        rules: "A=[&FL!A]///'[&FL!A]///'[&FL!A]///'[&FL!A]\nF=S/////F\nS=FL\nL=['''^^{-f+f+f-|-f+f+f}]",
+        angle: 27,
+        iter: 7,
+        len: 0.1,
+        width: 0.098,
+        cBase: "#3f2e18",
+        cTip: "#00ff00",
+        cLeaf: "#ff4040",
+        taper: 0.61,
+        angleRandom: 2,
+        leafSize: 2.3,
+        leavesTipsOnly: true
     }
 };
 
@@ -303,7 +356,8 @@ function init() {
         'angle-random': 'angle-random-val',
         'step-length': 'length-val',
         'width': 'width-val',
-        'width-taper': 'taper-val'
+        'width-taper': 'taper-val',
+        'leaf-size': 'leaf-size-val'
     };
 
     // Helper for Logarithmic Width
@@ -383,6 +437,8 @@ function generateLSystem(resetCamera = false) {
             const minW = 0.01, maxW = 50;
             const width = minW * Math.pow(maxW / minW, widthVal);
             const taper = uiParams.taper ? parseFloat(uiParams.taper.value) : 1.0;
+            const leafSize = uiParams.leafSize ? parseFloat(uiParams.leafSize.value) : 1.0;
+            const leavesTipsOnly = uiParams.leavesTipsOnly ? uiParams.leavesTipsOnly.checked : false;
             const autoScale = uiParams.autoScale ? uiParams.autoScale.checked : true;
 
             // 1. Generate String
@@ -401,7 +457,7 @@ function generateLSystem(resetCamera = false) {
             }
 
             // 2. Build Geometry
-            buildGeometry(lString, angle, angleVariance, stepLen, width, taper, autoScale, resetCamera);
+            buildGeometry(lString, angle, angleVariance, stepLen, width, taper, leafSize, leavesTipsOnly, autoScale, resetCamera);
 
         } catch (e) {
             console.error(e);
@@ -413,7 +469,7 @@ function generateLSystem(resetCamera = false) {
     }, 50);
 }
 
-function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, autoScale, resetCamera) {
+function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, leafSize, leavesTipsOnly, autoScale, resetCamera) {
     // Clean up old meshes
     if (treeMesh) {
         scene.remove(treeMesh);
@@ -644,15 +700,35 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, aut
             if (getRenderMode() === '3d' && vertexCount > 10000000) break; // Safety break increased
 
         } else if (char === 'L' || char === 'P') {
-            const dummy = new THREE.Object3D();
-            dummy.position.copy(pos);
-            dummy.quaternion.copy(quat);
-            dummy.rotateX(Math.random());
-            dummy.rotateY(Math.random());
-            const s = stepLen * 0.5;
-            dummy.scale.set(s, s, s);
-            dummy.updateMatrix();
-            leafMatrices.push(dummy.matrix.clone());
+            // "Leaves Only At Tips" Check
+            let shouldDraw = true;
+            if (leavesTipsOnly) {
+                // Peek ahead: If we see F, G, or [, then we are NOT at a tip
+                let peekIndex = i + 1;
+                while (peekIndex < lString.length) {
+                    const nextChar = lString[peekIndex];
+                    if (nextChar === 'F' || nextChar === 'G' || nextChar === '[') {
+                        shouldDraw = false;
+                        break;
+                    }
+                    if (nextChar === ']') break; // Branch closed, we are safe
+                    // Ignore rotations, !, colors, etc.
+                    peekIndex++;
+                }
+            }
+
+            if (shouldDraw) {
+                const dummy = new THREE.Object3D();
+                dummy.position.copy(pos);
+                dummy.quaternion.copy(quat);
+                dummy.rotateX(Math.random());
+                dummy.rotateY(Math.random());
+                // Scale by initial Step Length AND the Leaf Size Multiplier
+                const s = stepLen * 0.5 * leafSize;
+                dummy.scale.set(s, s, s);
+                dummy.updateMatrix();
+                leafMatrices.push(dummy.matrix.clone());
+            }
 
         } else if (char === '+') {
             rotHelper.setFromAxisAngle(zAxis, getAngle());
@@ -951,6 +1027,8 @@ function loadPreset() {
     const sliderPos = Math.log(p.width / minW) / Math.log(maxW / minW);
     uiParams.width.value = sliderPos;
     if (uiParams.taper) uiParams.taper.value = p.taper !== undefined ? p.taper : 0.7; // Reset taper
+    if (uiParams.leafSize) uiParams.leafSize.value = p.leafSize !== undefined ? p.leafSize : 1.0; // Reset leaf size
+    if (uiParams.leavesTipsOnly) uiParams.leavesTipsOnly.checked = p.leavesTipsOnly !== undefined ? p.leavesTipsOnly : true; // Default checked
 
     if (uiParams.showGround) uiParams.showGround.checked = true; // Default ground on
     if (uiParams.autoScale) uiParams.autoScale.checked = true; // Default auto-scale on
@@ -965,7 +1043,8 @@ function loadPreset() {
         'angle-random': 'angle-random-val',
         'step-length': 'length-val',
         'width': 'width-val',
-        'width-taper': 'taper-val'
+        'width-taper': 'taper-val',
+        'leaf-size': 'leaf-size-val'
     };
 
     Object.keys(valDisplays).forEach(id => {
