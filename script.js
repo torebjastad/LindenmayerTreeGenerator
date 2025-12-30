@@ -10,6 +10,7 @@ const MAX_SEGMENTS = 400000; // Safety limit
 // --- State ---
 let scene, camera, renderer, controls, composer;
 let treeMesh, leafMesh, jointMesh, groundMesh;
+let savedBaseLeafMatrices = [];
 let isGenerating = false;
 
 // --- DOM Elements ---
@@ -62,7 +63,7 @@ const presets = {
         cBase: "#2d1b0e",
         cTip: "#84cc16",
         cLeaf: "#86efac",
-        taper: 0.73,
+        taper: 0.96,
         leavesTipsOnly: true
     },
     leafy2: {
@@ -329,7 +330,7 @@ function init() {
 
     const autoScaleEl = document.getElementById('auto-scale');
     if (autoScaleEl) {
-        autoScaleEl.addEventListener('change', generateLSystem);
+        autoScaleEl.addEventListener('change', processAutoScale);
     }
     document.getElementById('toggle-ui').addEventListener('click', () => {
         document.getElementById('ui-panel').classList.toggle('collapsed');
@@ -337,7 +338,18 @@ function init() {
 
     // Auto-generate on slider/input release (change event)
     Object.values(uiParams).forEach(input => {
-        if (input) input.addEventListener('change', generateLSystem);
+        if (input) {
+            if (input === uiParams.leafSize) {
+                input.addEventListener('input', updateLeafSize); // Instant Update
+            } else if (input === uiParams.colorBase ||
+                input === uiParams.colorTip ||
+                input === uiParams.colorLeaf) {
+                // Do nothing on 'change', as 'input' handles it live.
+                // Prevents regen when closing color picker.
+            } else {
+                input.addEventListener('change', generateLSystem);
+            }
+        }
     });
     document.getElementById('preset-select').addEventListener('change', generateLSystem);
     document.querySelectorAll('input[name="render-mode"]').forEach(radio => {
@@ -501,6 +513,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, lea
 
     // Leaf transforms
     const leafMatrices = [];
+    savedBaseLeafMatrices = []; // Clear global storage
 
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
@@ -723,8 +736,16 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, lea
                 dummy.quaternion.copy(quat);
                 dummy.rotateX(Math.random());
                 dummy.rotateY(Math.random());
-                // Scale by initial Step Length AND the Leaf Size Multiplier
-                const s = stepLen * 0.5 * leafSize;
+                dummy.updateMatrix();
+
+                // Store BASE matrix (scale = stepLen * 0.5) for live resizing
+                const baseS = stepLen * 0.5;
+                dummy.scale.set(baseS, baseS, baseS);
+                dummy.updateMatrix();
+                savedBaseLeafMatrices.push(dummy.matrix.clone());
+
+                // Apply initial leafSize
+                const s = baseS * leafSize;
                 dummy.scale.set(s, s, s);
                 dummy.updateMatrix();
                 leafMatrices.push(dummy.matrix.clone());
@@ -829,6 +850,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, lea
         treeMesh.castShadow = true;
         treeMesh.receiveShadow = true;
         scene.add(treeMesh);
+        treeMesh.userData.bounds = { minX, maxX, minY, maxY, minZ, maxZ };
 
         scene.fog.density = 0.002;
 
@@ -866,6 +888,7 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, lea
         if (treeMesh.instanceColor) treeMesh.instanceColor.needsUpdate = true;
 
         scene.add(treeMesh);
+        treeMesh.userData.bounds = { minX, maxX, minY, maxY, minZ, maxZ };
     }
 
 
@@ -890,86 +913,15 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, lea
         scene.add(leafMesh);
     }
 
-    // Auto-Scale Logic
-    let sizeX = maxX - minX;
-    let sizeY = maxY - minY;
-    let sizeZ = maxZ - minZ;
-    let centerX = (minX + maxX) / 2;
-    let centerY = (minY + maxY) / 2;
-    let centerZ = (minZ + maxZ) / 2;
+    // Process Auto-Scale and Camera Fit
+    processAutoScale();
 
-    if (autoScale && sizeY > 0) {
-        const targetHeight = 60;
-        const scale = targetHeight / sizeY;
-
-        if (treeMesh) treeMesh.scale.set(scale, scale, scale);
-        if (leafMesh) leafMesh.scale.set(scale, scale, scale);
-
-
-        // Adjust bounds logic for camera
-        sizeX *= scale; sizeY *= scale; sizeZ *= scale;
-        centerX *= scale; centerY *= scale; centerZ *= scale;
-    }
-
-    const maxDim = Math.max(sizeX, sizeY, sizeZ);
-
-    // Ideal Camera Distance for Fog/Light scaling
-    const fov = camera.fov * (Math.PI / 180);
-    let idealDistance = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-    idealDistance *= 1.5; // Add some padding
-
+    // if (resetCamera) ... (handled in fitCamera called by processAutoScale)
+    // Legacy camera logic removed/replaced by processAutoScale + fitCamera
+    /*
     if (resetCamera) {
-        controls.target.set(centerX, centerY, centerZ);
-        // Default Front View
-        camera.position.set(0, centerY, idealDistance);
-    } else {
-        // Smart Fit: Keep viewing angle, but adjust distance and target to fit new tree
-        const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-
-        // Update target to new center of tree
-        controls.target.set(centerX, centerY, centerZ);
-
-        // Move camera along the same direction vector to the new ideal distance
-        camera.position.copy(controls.target).add(direction.multiplyScalar(idealDistance));
-    }
-
-    camera.far = Math.max(2000, idealDistance * 5);
-    camera.updateProjectionMatrix();
-
-    // Dynamic Fog and Lighting
-    const renderMode = getRenderMode();
-    if (renderMode === '3d') {
-        // Scale fog density so tree is always visible (0.05 / dist gives ~95% visibility at target)
-        scene.fog.density = Math.min(0.002, 0.05 / idealDistance);
-
-        // Move lights based on scene size
-        const keyLight = scene.getObjectByName('keyLight');
-        if (keyLight) {
-            keyLight.position.set(centerX + maxDim, centerY + maxDim, centerZ + maxDim);
-            keyLight.target.position.set(centerX, centerY, centerZ);
-            keyLight.target.updateMatrixWorld();
-            keyLight.intensity = 2.5;
-
-            // Update shadow camera bounds to fit new tree size
-            const d = maxDim * 1.5;
-            keyLight.shadow.camera.left = -d;
-            keyLight.shadow.camera.right = d;
-            keyLight.shadow.camera.top = d;
-            keyLight.shadow.camera.bottom = -d;
-            keyLight.shadow.camera.far = maxDim * 4;
-            keyLight.shadow.camera.updateProjectionMatrix();
-        }
-
-        const fillLight = scene.getObjectByName('fillLight');
-        if (fillLight) {
-            fillLight.position.set(centerX - maxDim, centerY + maxDim * 0.5, centerZ - maxDim);
-            fillLight.target.position.set(centerX, centerY, centerZ);
-            fillLight.target.updateMatrixWorld();
-            fillLight.intensity = 1.0;
-        }
-    } else {
-        scene.fog.density = 0; // No fog in 2D
-    }
+    ...
+    */
 
     // Check ground visibility
     if (groundMesh) groundMesh.visible = uiParams.showGround.checked;
@@ -979,22 +931,14 @@ function buildGeometry(lString, angle, angleVariance, stepLen, width, taper, lea
 }
 
 function updateColors() {
-    if (!treeMesh || !treeMesh.instanceColor) return;
+    // console.log("updateColors called");
+    if (!treeMesh) return;
     const colorBase = new THREE.Color(uiParams.colorBase.value);
     const colorTip = new THREE.Color(uiParams.colorTip.value);
 
-    // To get the height of each instance, we'd need to store it or extract it from matrices.
-    // For performance and simplicity, we can just re-generate if colors change, 
-    // or store branchHeights in a higher scope.
-    // Let's rely on the fact that buildGeometry just ran.
-    // However, the user wants instant color updates.
-    // I'll make branchHeights a global/module variable to support this.
-
-    // For now, let's just trigger a re-generate for color changes if we don't have heights cached.
-    // But since the user wants it "instant", I should cache the heights.
-
     // I'll update buildGeometry to store heights on the mesh object for easy access.
     if (treeMesh.userData.branchHeights) {
+        // console.log("Updating InstancedMesh colors");
         const heights = treeMesh.userData.branchHeights;
         const maxY = treeMesh.userData.maxY;
         for (let i = 0; i < treeMesh.count; i++) {
@@ -1002,10 +946,139 @@ function updateColors() {
             treeMesh.setColorAt(i, colorBase.clone().lerp(colorTip, t));
         }
         treeMesh.instanceColor.needsUpdate = true;
+    } else if (treeMesh && treeMesh.geometry.attributes.color) {
+        // Continuous Mesh (Vertex Colors)
+        const cBase = new THREE.Color(uiParams.colorBase.value);
+        const cTip = new THREE.Color(uiParams.colorTip.value);
+        // Need bounds. stored in userData?
+        const bounds = treeMesh.userData.bounds;
+        if (bounds) {
+            const minY = bounds.minY;
+            const maxY = bounds.maxY;
+            const yRange = (maxY - minY) || 1;
+            const positions = treeMesh.geometry.attributes.position.array;
+            const colors = treeMesh.geometry.attributes.color.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                const y = positions[i + 1];
+                const t = Math.max(0, Math.min(1, (y - minY) / yRange));
+                const c = cBase.clone().lerp(cTip, t);
+                colors[i] = c.r;
+                colors[i + 1] = c.g;
+                colors[i + 2] = c.b;
+            }
+            treeMesh.geometry.attributes.color.needsUpdate = true;
+        }
     } else {
         generateLSystem();
     }
 }
+
+function updateLeafSize() {
+    if (!leafMesh || savedBaseLeafMatrices.length === 0) return;
+
+    // Scale multiplier
+    const leafSize = parseFloat(uiParams.leafSize.value);
+    const tempMat = new THREE.Matrix4();
+    const scaleVec = new THREE.Vector3(leafSize, leafSize, leafSize);
+
+    for (let i = 0; i < savedBaseLeafMatrices.length; i++) {
+        tempMat.copy(savedBaseLeafMatrices[i]);
+        tempMat.scale(scaleVec);
+        leafMesh.setMatrixAt(i, tempMat);
+    }
+    leafMesh.instanceMatrix.needsUpdate = true;
+}
+
+function processAutoScale() {
+    if (!treeMesh) return;
+    const autoScale = uiParams.autoScale.checked;
+
+    // Store original unscaled bounds in userData or assume current scale is applied?
+    // Easiest: Reset scale to 1,1,1 then measure, then apply new scale.
+    treeMesh.scale.set(1, 1, 1);
+    if (leafMesh) leafMesh.scale.set(1, 1, 1);
+
+    if (autoScale && treeMesh.userData.bounds) {
+        const b = treeMesh.userData.bounds;
+        const sizeY = b.maxY - b.minY;
+        if (sizeY > 0) {
+            const targetHeight = 60;
+            const s = targetHeight / sizeY;
+            treeMesh.scale.set(s, s, s);
+            if (leafMesh) leafMesh.scale.set(s, s, s);
+        }
+    }
+
+    // Recalculate camera metrics (approximate or rigorous)
+    // We can just call the camera fit logic again if we extract it.
+    // For now, let's just leave camera alone or re-center?
+    // generateLSystem usually refits camera. 
+    // Let's just fit camera:
+    fitCamera();
+}
+
+function fitCamera(reset = false) {
+    if (!treeMesh || !treeMesh.userData.bounds) return;
+
+    // Effective bounds (scaled)
+    const s = treeMesh.scale.x; // Uniform scale
+    const b = treeMesh.userData.bounds;
+
+    const minX = b.minX * s, maxX = b.maxX * s;
+    const minY = b.minY * s, maxY = b.maxY * s;
+    const minZ = b.minZ * s, maxZ = b.maxZ * s;
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const centerZ = (minZ + maxZ) / 2;
+
+    const sizeX = maxX - minX;
+    const sizeY = maxY - minY;
+    const sizeZ = maxZ - minZ;
+    const maxDim = Math.max(sizeX, sizeY, sizeZ);
+
+    const fov = camera.fov * (Math.PI / 180);
+    let idealDistance = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+
+    if (reset) {
+        controls.target.set(centerX, centerY, centerZ);
+        camera.position.set(0, centerY, idealDistance);
+    } else {
+        const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+        controls.target.set(centerX, centerY, centerZ);
+        camera.position.copy(controls.target).add(direction.multiplyScalar(idealDistance));
+    }
+
+    camera.far = Math.max(2000, idealDistance * 5);
+    camera.updateProjectionMatrix();
+
+    // Update Fog/Lights
+    if (getRenderMode() === '3d') {
+        scene.fog.density = Math.min(0.002, 0.05 / idealDistance);
+
+        const keyLight = scene.getObjectByName('keyLight');
+        if (keyLight) {
+            keyLight.position.set(centerX + maxDim, centerY + maxDim, centerZ + maxDim);
+            keyLight.target.position.set(centerX, centerY, centerZ);
+            keyLight.target.updateMatrixWorld();
+
+            const d = maxDim * 1.5;
+            keyLight.shadow.camera.left = -d;
+            keyLight.shadow.camera.right = d;
+            keyLight.shadow.camera.top = d;
+            keyLight.shadow.camera.bottom = -d;
+            keyLight.shadow.camera.far = maxDim * 4;
+            keyLight.shadow.camera.updateProjectionMatrix();
+        }
+        const fillLight = scene.getObjectByName('fillLight');
+        if (fillLight) {
+            fillLight.position.set(centerX - maxDim, centerY + maxDim * 0.5, centerZ - maxDim);
+            fillLight.target.position.set(centerX, centerY, centerZ);
+            fillLight.target.updateMatrixWorld();
+        }
+    }
+}
+
 
 function updateLeafColor() {
     if (leafMesh) {
